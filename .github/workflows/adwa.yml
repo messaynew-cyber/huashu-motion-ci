@@ -96,7 +96,7 @@ jobs:
           set +e
           python skill/scripts/engine/render.py \
             --spec "clips/adwa/${{ matrix.shot }}.json" \
-            --out out/stub.mp4 --stills 0.6,2.0 2>&1 | tee /tmp/stub.log
+            --out out/still-probe.mp4 --stills 0.6,2.0 2>&1 | tee /tmp/stub.log
           RC=${PIPESTATUS[0]}; set -e
           if [ "$RC" -ne 0 ]; then
             cp /tmp/stub.log out/render-failure.log 2>/dev/null || true
@@ -156,9 +156,11 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
           mkdir -p final/parts
           # artifacts land as shots/shot-XX/out/XX.mp4 -> collect in shot order
-          for f in $(find shots -name '*.mp4' | sort); do
+          # -type f is load-bearing: Gate 2 writes stills into out/still-probe.mp4/,
+          # a DIRECTORY named *.mp4, and a bare -name '*.mp4' would feed cp a directory.
+          for f in $(find shots -type f -name '*.mp4' | sort); do
             base=$(basename "$f" .mp4)
-            cp "$f" "final/parts/$base.mp4"
+            cp "$f" "final/parts/$base.mp4" || echo "warn: failed to copy $f"
           done
           ls -1 final/parts/
           if [ "$(ls -1 final/parts/*.mp4 2>/dev/null | wc -l)" -eq 0 ]; then
