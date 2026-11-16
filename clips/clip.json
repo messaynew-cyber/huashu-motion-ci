@@ -1,0 +1,37 @@
+{
+  "_note": "CI smoke clip. 15s would fail clip_lint (max 8s per clip) so this is one 6s cut: title -> number -> point.",
+  "grammar": "t2_keynote_ui",
+  "duration": 6,
+  "fps": 30,
+  "width": 1280,
+  "height": 720,
+  "theme": "navy",
+  "finish": "clean",
+  "data": {
+    "eyebrow": "TOBIA ON GITHUB ACTIONS",
+    "title": "Phone writes. Runner renders.",
+    "subtitle": "no GPU, no VPS, 4 vCPU"
+  },
+  "cues": [
+    {
+      "at": 0.2,
+      "kind": "title",
+      "text": "huashu-art-motion"
+    },
+    {
+      "at": 2.0,
+      "kind": "number",
+      "text": "帧由 Chromium 画",
+      "data": {
+        "value": 3600,
+        "suffix": " 帧"
+      }
+    },
+    {
+      "at": 4.2,
+      "kind": "card",
+      "text": "管线跑通了",
+      "sub": "lint → render → gate"
+    }
+  ]
+}
