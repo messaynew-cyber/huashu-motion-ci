@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       shots: ${{ steps.pick.outputs.shots }}
+      matrix: ${{ steps.pick.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - id: pick
@@ -47,6 +48,11 @@ jobs:
           fi
           echo "rendering: $OUT"
           echo "shots=$OUT" >> "$GITHUB_OUTPUT"
+          # matrix wants a JSON array of objects/strings; build it here so the
+          # expression language stays trivial (no replace()/format() needed)
+          JSON=$(printf '%s' "$OUT" | awk -F, '{printf "["; for(i=1;i<=NF;i++){printf "%s\"%s\"", (i>1?",":""), $i}; printf "]"}')
+          echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
+          echo "matrix=$JSON"
 
   render:
     needs: plan
@@ -56,7 +62,7 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        shot: ${{ fromJSON(format('["{0}"]', replace(needs.plan.outputs.shots, ',', '","'))) }}
+        shot: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
