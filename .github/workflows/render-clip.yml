@@ -99,6 +99,7 @@ jobs:
             echo "===== STUB LOG ====="
             cat /tmp/stub.log
             echo "===== END LOG ====="
+            cp /tmp/stub.log out/render-failure.log 2>/dev/null || true
             { echo '### ❌ render.py failed (exit '"$RC"')'; echo '```'; tail -60 /tmp/stub.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
@@ -119,7 +120,7 @@ jobs:
           python skill/scripts/engine/render.py "${ARGS[@]}" 2>&1 | tee /tmp/render.log
           RC=${PIPESTATUS[0]}
           set -e
-          if [ "$RC" -ne 0 ]; then echo "::error::render.py failed (exit $RC)"; tail -40 /tmp/render.log; exit 1; fi
+          if [ "$RC" -ne 0 ]; then cp /tmp/render.log out/render-failure.log 2>/dev/null || true; echo "::error::render.py failed (exit $RC)"; tail -40 /tmp/render.log; exit 1; fi
           echo "render_seconds=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
           ls -lh out/
 
@@ -144,6 +145,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: huashu-clip
-          path: out/
+          path: |
+            out/
+            /tmp/stub.log
+            /tmp/render.log
           if-no-files-found: warn
           retention-days: 14
