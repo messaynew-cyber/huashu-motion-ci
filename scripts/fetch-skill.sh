@@ -40,39 +40,48 @@ cp /tmp/skill-x/LICENSE       "${DEST}/" 2>/dev/null || true
 if [ -d fonts ] && [ -n "$(ls -A fonts 2>/dev/null)" ]; then
   echo "==> injecting local fonts: $(ls fonts | tr '\n' ' ')"
   cp fonts/* "${DEST}/scripts/engine/lib/fonts/"
+  # The @font-face list lives in fonts.js as JS. Generating it from filenames is
+  # fragile (variable fonts like Inter-var and subsets like NotoSansSC-sub produce
+  # bogus weights such as 'var' / 'sub', which crash the page with
+  # "Failed to set 'var' as a property value"). So: only OUR fonts are injected,
+  # listed explicitly. Upstream's own entries are left untouched.
   python3 - <<'PY'
 import json, os
-base = 'skill/scripts/engine/lib/fonts'
-idx = json.load(open(os.path.join(base, 'index.json')))
-have = set(f for f, *_ in idx)
-extra = []
-for f in sorted(os.listdir(base)):
-    if not f.endswith(('.woff', '.woff2')):
-        continue
-    if f in have:
-        continue
-    # filename convention: <Family>-<weight>.<ext>
-    stem = f.rsplit('.', 1)[0]
-    family, weight = (stem.rsplit('-', 1) + ['400'])[:2] if '-' in stem else (stem, '400')
-    extra.append([f, family.replace('_', ' '), 'normal', weight])
-idx.extend(extra)
-json.dump(idx, open(os.path.join(base, 'index.json'), 'w'))
-print('index.json entries added:', extra)
 
-# append @font-face registrations to fonts.js
-js = os.path.join('skill/scripts/engine/lib/fonts.js')
+base = 'skill/scripts/engine/lib/fonts'
+js = 'skill/scripts/engine/lib/fonts.js'
 src = open(js).read()
-lines = []
-for f, fam, style, weight in extra:
-    famname = f.rsplit('.', 1)[0]
-    desc = f", desc:{{weight:'{weight}'}}" if weight else ''
-    lines.append("  {family:'%s', url:'lib/fonts/%s'%s}," % (famname, f, desc))
-if lines:
-    marker = '\n];'
-    i = src.rfind(marker)
-    src = src[:i] + '\n  // ---- injected by fetch-skill.sh (repo-local fonts) ----\n' + '\n'.join(lines) + src[i:]
+
+# repo-local fonts only: filename -> (css weight, extra desc or None)
+OURS = {
+    'NotoSansEthiopic-700.woff2': ('700', None),
+}
+
+added = []
+for fname, (weight, desc) in OURS.items():
+    if not os.path.exists(os.path.join(base, fname)):
+        raise SystemExit('font file missing in skill: ' + fname)
+    fam = fname.rsplit('.', 1)[0]
+    if ("family:'%s'" % fam) in src:          # already registered, don't double-add
+        continue
+    d = (", desc:{weight:'%s'}" % desc) if desc else ''
+    added.append("  {family:'%s', url:'lib/fonts/%s'%s}," % (fam, fname, d))
+
+if added:
+    i = src.rfind('\n];')
+    src = src[:i] + '\n  // ---- injected by fetch-skill.sh (repo-local fonts) ----\n' + '\n'.join(added) + src[i:]
     open(js, 'w').write(src)
-    print('fonts.js registrations added:', len(lines))
+
+# append to index.json only for fonts it does not already list
+idx = json.load(open(os.path.join(base, 'index.json')))
+have = set(e[0] for e in idx)
+for fname, (weight, desc) in OURS.items():
+    if fname not in have:
+        fam = fname.rsplit('.', 1)[0].replace('_', ' ')
+        idx.append([fname, fam, 'normal', weight])
+json.dump(idx, open(os.path.join(base, 'index.json'), 'w'))
+
+print('fonts.js registrations added:', added)
 PY
 fi
 
