@@ -95,8 +95,10 @@ jobs:
           RC=${PIPESTATUS[0]}
           set -e
           if [ "$RC" -ne 0 ]; then
-            echo "::error::render.py failed on stills (exit $RC) — last 40 lines follow"
-            tail -40 /tmp/stub.log
+            echo "::error::render.py failed on stills (exit $RC) — full log below"
+            echo "===== STUB LOG ====="
+            cat /tmp/stub.log
+            echo "===== END LOG ====="
             exit 1
           fi
           ls -lh out/
