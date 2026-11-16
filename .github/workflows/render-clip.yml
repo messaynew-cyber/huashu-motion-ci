@@ -68,7 +68,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg
           uv venv .venv
           . .venv/bin/activate
-          uv pip install playwright
+          uv pip install playwright numpy opencv-python-headless
           python -m playwright install --with-deps chromium
 
       - name: Fetch skill @ pinned ref
@@ -123,8 +123,8 @@ jobs:
           echo "### Render report" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- render time: **${{ steps.render.outputs.render_seconds }}s**" >> "$GITHUB_STEP_SUMMARY"
-          [ -f out/film.mp4 ] && echo "- file: $(du -h out/film.mp4 | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
-          [ -d out/stills ] && ls out/stills | head -10 >> "$GITHUB_STEP_SUMMARY"
+          if [ -f out/film.mp4 ]; then echo "- file: $(du -h out/film.mp4 | cut -f1)" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -d out/stub.mp4 ]; then echo "- stills: $(ls out/stub.mp4 | tr "\n" " ")" >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Upload artifacts
         if: always()
