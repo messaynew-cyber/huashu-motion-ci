@@ -76,6 +76,21 @@ if lines:
 PY
 fi
 
+
+echo "==> font sanity check"
+python3 - <<'PY'
+import json, os
+base = 'skill/scripts/engine/lib/fonts'
+idx = json.load(open(os.path.join(base, 'index.json')))
+print('index.json entries:', len(idx))
+eth = [f for f in os.listdir(base) if 'Ethiopic' in f]
+print('Ethiopic files present:', eth)
+js = open('skill/scripts/engine/lib/fonts.js').read()
+print('fonts.js registers Ethiopic:', 'Ethiopic' in js)
+if not eth: raise SystemExit('MISSING Ethiopic font — Amharic will render as tofu')
+if 'Ethiopic' not in js: raise SystemExit('fonts.js has no Ethiopic registration')
+PY
+
 echo "==> skill tree:"
 du -sh "${DEST}"/* | sort -h
 echo "==> engine:"
