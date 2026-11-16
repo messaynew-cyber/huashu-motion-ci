@@ -1,0 +1,43 @@
+{
+  "_note": "FONT PROBE — does Ethiopic render? If these come out as tofu boxes the font didn't load.",
+  "grammar": "y5_kinetic_type",
+  "duration": 3,
+  "fps": 24,
+  "width": 1280,
+  "height": 720,
+  "theme": {
+    "name": "ink",
+    "bg": "#0A0C10",
+    "surface": "#14181F",
+    "ink": "#F2EFE8",
+    "sub": "#8A8578",
+    "accent": "#D4A22E",
+    "accent2": "#5FB3A1"
+  },
+  "finish": "clean",
+  "data": {
+    "palette": [
+      [
+        "#0A0C10",
+        "#F2EFE8"
+      ]
+    ]
+  },
+  "cues": [
+    {
+      "at": 0.2,
+      "kind": "point",
+      "text": "አድዋ",
+      "sub": "Adwa — 1896",
+      "data": {
+        "label": "PROBE"
+      }
+    },
+    {
+      "at": 1.5,
+      "kind": "point",
+      "text": "የአድዋ ድል",
+      "sub": "the victory of Adwa"
+    }
+  ]
+}
