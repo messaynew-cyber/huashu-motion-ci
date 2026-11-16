@@ -1,0 +1,42 @@
+{
+  "grammar": "y1_kurzgesagt",
+  "duration": 6.0,
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "theme": {
+    "name": "adwa-ink",
+    "bg": "#0A0C10",
+    "surface": "#151A21",
+    "ink": "#F2EFE8",
+    "sub": "#8A8578",
+    "accent": "#D4A22E",
+    "accent2": "#7FA88F"
+  },
+  "finish": "clean",
+  "data": {
+    "center": "East Africa"
+  },
+  "cues": [
+    {
+      "at": 0.3,
+      "kind": "title",
+      "text": "1896 · አድዋ"
+    },
+    {
+      "at": 1.2,
+      "kind": "point",
+      "text": "Italian Eritrea"
+    },
+    {
+      "at": 3.2,
+      "kind": "point",
+      "text": "Ethiopian Empire"
+    },
+    {
+      "at": 4.8,
+      "kind": "point",
+      "text": "Treaty of Wuchale"
+    }
+  ]
+}
