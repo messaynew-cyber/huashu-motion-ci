@@ -1,0 +1,136 @@
+name: render-clip
+
+# Smoke-then-scale pipeline for huashu-art-motion parameterized clips.
+# Gates cheapest-first: lint (20s) -> render (minutes) -> film_gate (seconds).
+# A broken storyboard never reaches the expensive Chromium step.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Path to the clip spec json"
+        required: false
+        default: clips/clip.json
+      width:
+        description: "Override width (blank = from spec)"
+        required: false
+        default: ""
+      height:
+        description: "Override height (blank = from spec)"
+        required: false
+        default: ""
+      fps:
+        description: "Override fps (blank = from spec)"
+        required: false
+        default: ""
+      stills:
+        description: "Comma-separated timestamps for spot-check stills (e.g. 0.5,2)"
+        required: false
+        default: "0.5,2"
+      skip_gate:
+        description: "Skip the film gate (debug only)"
+        required: false
+        default: "false"
+  push:
+    paths:
+      - "clips/**"
+      - ".github/workflows/render-clip.yml"
+
+env:
+  SKILL_REPO: alchaincyf/huashu-art-motion
+  SKILL_REF: v1.3.1
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show runner
+        run: |
+          echo "cpu: $(nproc)  mem: $(free -h | awk '/Mem:/{print $2}')  disk: $(df -h / | awk 'NR==2{print $4}') free"
+          ffmpeg -version | head -1
+          node --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install ffmpeg + chromium deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          uv venv .venv
+          . .venv/bin/activate
+          uv pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Fetch skill @ pinned ref
+        run: bash scripts/fetch-skill.sh
+
+      - name: "Gate 1 — validate spec"
+        run: |
+          . .venv/bin/activate
+          SPEC="${{ github.event.inputs.spec || 'clips/clip.json' }}"
+          echo "spec=$SPEC"
+          python skill/scripts/clip_lint.py "$SPEC" || {
+            echo "::error::clip_lint rejected the spec — fix it before rendering"; exit 1; }
+
+      - name: "Gate 2 — stub stills (cheap shape check)"
+        run: |
+          . .venv/bin/activate
+          SPEC="${{ github.event.inputs.spec || 'clips/clip.json' }}"
+          mkdir -p out
+          python skill/scripts/engine/render.py \
+            --spec "$SPEC" \
+            --out out/stub.mp4 \
+            --stills "${{ github.event.inputs.stills || '0.5,2' }}" || {
+            echo "::error::render.py failed on stills — Chromium/ffmpeg chain broken"; exit 1; }
+          ls -lh out/
+
+      - name: "Gate 3 — full render"
+        id: render
+        run: |
+          . .venv/bin/activate
+          SPEC="${{ github.event.inputs.spec || 'clips/clip.json' }}"
+          ARGS=(--spec "$SPEC" --out out/film.mp4)
+          [ -n "${{ github.event.inputs.width }}" ]  && ARGS+=(--width  "${{ github.event.inputs.width }}")
+          [ -n "${{ github.event.inputs.height }}" ] && ARGS+=(--height "${{ github.event.inputs.height }}")
+          [ -n "${{ github.event.inputs.fps }}" ]    && ARGS+=(--fps    "${{ github.event.inputs.fps }}")
+          echo "argv: ${ARGS[*]}"
+          START=$(date +%s)
+          python skill/scripts/engine/render.py "${ARGS[@]}" || {
+            echo "::error::render.py failed"; exit 1; }
+          echo "render_seconds=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
+          ls -lh out/
+
+      - name: "Gate 4 — film gate"
+        if: ${{ github.event.inputs.skip_gate != 'true' }}
+        run: |
+          . .venv/bin/activate
+          python skill/scripts/film_gate.py out/film.mp4 || {
+            echo "::error::film_gate rejected the cut — static or dead frames"; exit 1; }
+
+      - name: Report
+        if: always()
+        run: |
+          echo "### Render report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- render time: **${{ steps.render.outputs.render_seconds }}s**" >> "$GITHUB_STEP_SUMMARY"
+          [ -f out/film.mp4 ] && echo "- file: $(du -h out/film.mp4 | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          [ -d out/stills ] && ls out/stills | head -10 >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: huashu-clip
+          path: out/
+          if-no-files-found: warn
+          retention-days: 14
