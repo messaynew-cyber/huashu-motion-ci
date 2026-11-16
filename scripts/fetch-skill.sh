@@ -86,6 +86,44 @@ PY
 fi
 
 
+# ---------------------------------------------------------------------------
+# Structural verification: the skill's loader reads the cmap table to validate
+# glyph coverage, and a font without one throws "no cmap table" at render time.
+# A converted font can look fine (browsers still shape it) and still be rejected,
+# so check the packaged file here — this is seconds, a bad font costs a whole run.
+# ---------------------------------------------------------------------------
+echo "==> verifying packaged fonts (cmap present)"
+. .venv/bin/activate 2>/dev/null || true
+uv pip install --quiet fonttools brotli >/dev/null 2>&1 || pip install --quiet fonttools brotli
+python - <<'PY'
+import glob, os, sys
+from fontTools.ttLib import TTFont
+bad = []
+checked = 0
+for p in sorted(glob.glob('skill/scripts/engine/lib/fonts/*.woff*')):
+    name = os.path.basename(p)
+    if 'Ethiopic' not in name:
+        continue
+    try:
+        f = TTFont(p)
+        n = len(f.getBestCmap() or {})
+    except Exception as e:
+        bad.append(f'{name}: unreadable ({e})')
+        continue
+    checked += 1
+    if n == 0:
+        bad.append(f'{name}: cmap missing or empty')
+    else:
+        print(f'  {name}: {n} codepoints OK')
+if bad:
+    for b in bad:
+        print('FONT FAIL:', b, file=sys.stderr)
+    raise SystemExit(1)
+if not checked:
+    raise SystemExit('no Ethiopic font found after injection')
+print('font verification passed')
+PY
+
 echo "==> font sanity check"
 python3 - <<'PY'
 import json, os
