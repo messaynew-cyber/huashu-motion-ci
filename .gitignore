@@ -1,0 +1,10 @@
+*.mp4
+*.mov
+*.webm
+out/
+skill/
+.venv/
+__pycache__/
+*.pyc
+tmp/
+.DS_Store
