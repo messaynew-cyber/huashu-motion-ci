@@ -54,7 +54,7 @@ src = open(js).read()
 
 # repo-local fonts only: filename -> (css weight, extra desc or None)
 OURS = {
-    'NotoSansEthiopic-700.woff2': ('700', None),
+    'NotoSansEthiopic-700.woff': ('700', None),
 }
 
 added = []
@@ -92,36 +92,50 @@ fi
 # A converted font can look fine (browsers still shape it) and still be rejected,
 # so check the packaged file here — this is seconds, a bad font costs a whole run.
 # ---------------------------------------------------------------------------
-echo "==> verifying packaged fonts (cmap present)"
-. .venv/bin/activate 2>/dev/null || true
-uv pip install --quiet fonttools brotli >/dev/null 2>&1 || pip install --quiet fonttools brotli
-python - <<'PY'
-import glob, os, sys
-from fontTools.ttLib import TTFont
-bad = []
-checked = 0
-for p in sorted(glob.glob('skill/scripts/engine/lib/fonts/*.woff*')):
+echo "==> verifying packaged font (WOFF1 signature + inflatable cmap)"
+uv pip install --quiet fonttools >/dev/null 2>&1 || true
+.venv/bin/python - <<'PY' 2>/dev/null || python3 - <<'PY'
+import glob, os, struct, sys, zlib
+
+def read_cmap_like_engine(ab):
+    """Mirror of lib/util.js readCmap: WOFF1 (0x774F4646) or bare TTF/OTF only."""
+    sig = struct.unpack('>I', ab[:4])[0]
+    if sig == 0x774F4646:                                  # 'wOFF'
+        num = struct.unpack('>H', ab[12:14])[0]
+        for i in range(num):
+            o = 44 + i * 20
+            if ab[o:o+4] != b'cmap':
+                continue
+            off, comp, orig = struct.unpack('>III', ab[o+4:o+16])
+            raw = ab[off:off+comp]
+            return zlib.decompress(raw) if comp < orig else raw
+    elif sig in (0x00010000, 0x4F54544F):                  # TTF / OTTO
+        num = struct.unpack('>H', ab[4:6])[0]
+        for i in range(num):
+            o = 12 + i * 16
+            if ab[o:o+4] == b'cmap':
+                off, ln = struct.unpack('>II', ab[o+8:o+16])
+                return ab[off:off+ln]
+    return None
+
+cands = [p for p in glob.glob('skill/scripts/engine/lib/fonts/*') if 'Ethiopic' in p]
+if not cands:
+    raise SystemExit('FONT FAIL: no Ethiopic font in skill after injection')
+
+for p in cands:
     name = os.path.basename(p)
-    if 'Ethiopic' not in name:
-        continue
-    try:
-        f = TTFont(p)
-        n = len(f.getBestCmap() or {})
-    except Exception as e:
-        bad.append(f'{name}: unreadable ({e})')
-        continue
-    checked += 1
-    if n == 0:
-        bad.append(f'{name}: cmap missing or empty')
-    else:
-        print(f'  {name}: {n} codepoints OK')
-if bad:
-    for b in bad:
-        print('FONT FAIL:', b, file=sys.stderr)
-    raise SystemExit(1)
-if not checked:
-    raise SystemExit('no Ethiopic font found after injection')
-print('font verification passed')
+    if name.endswith('.woff2'):
+        raise SystemExit(f'FONT FAIL: {name} is WOFF2 — engine readCmap cannot parse WOFF2')
+    ab = open(p, 'rb').read()
+    sig = struct.unpack('>I', ab[:4])[0]
+    if sig != 0x774F4646:
+        raise SystemExit(f'FONT FAIL: {name} signature {hex(sig)} is not WOFF1')
+    cm = read_cmap_like_engine(ab)
+    if not cm:
+        raise SystemExit(f'FONT FAIL: {name} has no readable cmap')
+    print(f'  {name}: WOFF1 OK, cmap {len(cm)} bytes, inflated')
+
+print('font verification passed (engine-compatible)')
 PY
 
 echo "==> font sanity check"
