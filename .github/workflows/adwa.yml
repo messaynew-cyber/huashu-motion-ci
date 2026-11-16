@@ -1,0 +1,170 @@
+name: adwa
+
+# Renders all nine Adwa shots of "Adwa — the mountain that held".
+# Matrix job: each shot renders in parallel on its own runner, so nine 6-8s clips
+# finish in roughly the time of the slowest one instead of nine in sequence.
+#
+# Gate order per shot is cheapest-first:
+#   1. clip_lint --strict   (seconds, catches a broken spec before Chromium starts)
+#   2. render.py --stills   (proves the Chromium/ffmpeg chain and the font)
+#   3. render.py full       (the actual mp4)
+#   4. film_gate            (static / dead-frame / blue-purple check)
+#
+# Then a final job downloads all nine and stitches them into one film with ffmpeg.
+
+on:
+  workflow_dispatch:
+    inputs:
+      shots:
+        description: "Comma-separated shot numbers to render (blank = all)"
+        required: false
+        default: ""
+      skip_gate:
+        description: "Skip film_gate (debug only)"
+        required: false
+        default: "false"
+
+env:
+  SKILL_REPO: alchaincyf/huashu-art-motion
+  SKILL_REF: v1.3.1
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      shots: ${{ steps.pick.outputs.shots }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        run: |
+          ALL=$(ls clips/adwa/[0-9]*.json | xargs -n1 basename | sed 's/.json$//' | paste -sd, -)
+          WANT="${{ github.event.inputs.shots }}"
+          if [ -n "$WANT" ]; then
+            OUT=$(echo "$ALL" | tr ',' '\n' | grep -E "^($(echo $WANT | tr ',' '|'))" | paste -sd, -)
+          else
+            OUT="$ALL"
+          fi
+          echo "rendering: $OUT"
+          echo "shots=$OUT" >> "$GITHUB_OUTPUT"
+
+  render:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shot: ${{ fromJSON(format('["{0}"]', replace(needs.plan.outputs.shots, ',', '","'))) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install ffmpeg + chromium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          uv venv .venv
+          . .venv/bin/activate
+          uv pip install playwright numpy opencv-python-headless
+          python -m playwright install --with-deps chromium
+
+      - name: Fetch skill
+        run: bash scripts/fetch-skill.sh
+
+      - name: "Gate 1 — clip_lint --strict"
+        run: |
+          . .venv/bin/activate
+          python skill/scripts/clip_lint.py "clips/adwa/${{ matrix.shot }}.json" --strict
+
+      - name: "Gate 2 — stills (chain + font proof)"
+        run: |
+          . .venv/bin/activate
+          mkdir -p out
+          set +e
+          python skill/scripts/engine/render.py \
+            --spec "clips/adwa/${{ matrix.shot }}.json" \
+            --out out/stub.mp4 --stills 0.6,2.0 2>&1 | tee /tmp/stub.log
+          RC=${PIPESTATUS[0]}; set -e
+          if [ "$RC" -ne 0 ]; then
+            cp /tmp/stub.log out/render-failure.log 2>/dev/null || true
+            echo "::error::render.py stills failed for ${{ matrix.shot }}"
+            { echo '### ❌ '"${{ matrix.shot }}"' stills failed'; echo '```'; tail -50 /tmp/stub.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: "Gate 3 — full render"
+        run: |
+          . .venv/bin/activate
+          set +e
+          python skill/scripts/engine/render.py \
+            --spec "clips/adwa/${{ matrix.shot }}.json" \
+            --out "out/${{ matrix.shot }}.mp4" 2>&1 | tee /tmp/render.log
+          RC=${PIPESTATUS[0]}; set -e
+          if [ "$RC" -ne 0 ]; then
+            cp /tmp/render.log out/render-failure.log 2>/dev/null || true
+            echo "::error::render failed for ${{ matrix.shot }}"
+            { echo '### ❌ '"${{ matrix.shot }}"' render failed'; echo '```'; tail -50 /tmp/render.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          ls -lh out/
+
+      - name: "Gate 4 — film gate"
+        if: ${{ github.event.inputs.skip_gate != 'true' }}
+        run: |
+          . .venv/bin/activate
+          python skill/scripts/film_gate.py "out/${{ matrix.shot }}.mp4"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shot-${{ matrix.shot }}
+          path: |
+            out/
+            /tmp/stub.log
+            /tmp/render.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  assemble:
+    needs: [plan, render]
+    if: always() && needs.render.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all shots
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shot-*
+          path: shots
+
+      - name: Stitch
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+          mkdir -p final/parts
+          # artifacts land as shots/shot-XX/out/XX.mp4 -> collect in shot order
+          for f in $(find shots -name '*.mp4' | sort); do
+            base=$(basename "$f" .mp4)
+            cp "$f" "final/parts/$base.mp4"
+          done
+          ls -1 final/parts/
+          if [ "$(ls -1 final/parts/*.mp4 2>/dev/null | wc -l)" -eq 0 ]; then
+            echo "::error::no clips were rendered"; exit 1
+          fi
+          printf "file '%s'\n" $(ls -1 final/parts/*.mp4 | sed "s|^|$PWD/|") > final/list.txt
+          cat final/list.txt
+          ffmpeg -y -f concat -safe 0 -i final/list.txt -c copy final/adwa.mp4 2>&1 | tail -20
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 final/adwa.mp4 | tee final/info.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adwa-film
+          path: final/adwa.mp4
+          retention-days: 30
