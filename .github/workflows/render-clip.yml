@@ -87,11 +87,18 @@ jobs:
           . .venv/bin/activate
           SPEC="${{ github.event.inputs.spec || 'clips/clip.json' }}"
           mkdir -p out
+          set +e
           python skill/scripts/engine/render.py \
             --spec "$SPEC" \
             --out out/stub.mp4 \
-            --stills "${{ github.event.inputs.stills || '0.5,2' }}" || {
-            echo "::error::render.py failed on stills — Chromium/ffmpeg chain broken"; exit 1; }
+            --stills "${{ github.event.inputs.stills || '0.5,2' }}" 2>&1 | tee /tmp/stub.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::render.py failed on stills (exit $RC) — last 40 lines follow"
+            tail -40 /tmp/stub.log
+            exit 1
+          fi
           ls -lh out/
 
       - name: "Gate 3 — full render"
@@ -105,8 +112,11 @@ jobs:
           [ -n "${{ github.event.inputs.fps }}" ]    && ARGS+=(--fps    "${{ github.event.inputs.fps }}")
           echo "argv: ${ARGS[*]}"
           START=$(date +%s)
-          python skill/scripts/engine/render.py "${ARGS[@]}" || {
-            echo "::error::render.py failed"; exit 1; }
+          set +e
+          python skill/scripts/engine/render.py "${ARGS[@]}" 2>&1 | tee /tmp/render.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          if [ "$RC" -ne 0 ]; then echo "::error::render.py failed (exit $RC)"; tail -40 /tmp/render.log; exit 1; fi
           echo "render_seconds=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
           ls -lh out/
 
