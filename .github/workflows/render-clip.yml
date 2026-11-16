@@ -99,6 +99,7 @@ jobs:
             echo "===== STUB LOG ====="
             cat /tmp/stub.log
             echo "===== END LOG ====="
+            { echo '### ❌ render.py failed (exit '"$RC"')'; echo '```'; tail -60 /tmp/stub.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           ls -lh out/
